@@ -2,9 +2,17 @@
 
 Trust these instructions first. Only search the codebase if information here is incomplete or found to be in error.
 
+## Project Identity
+
+**MSOA** is a personal interview showcase project — an end-to-end MLOps web application for monitoring synthetic pacemaker telemetry data. It is built on top of the FastAPI Full Stack Template but is **not** a template under development. All work done in this repository is for building a specific application.
+
+**Purpose**: Demonstrate skills in data engineering, AI/ML, CI/CD, and automation during a software engineering interview at a medical device R&D company. The project must show mastery of: data pipelines, ML model training and evaluation, CI/CD automation (targeting Azure DevOps), and a React dashboard that visualizes model results.
+
+**Application Domain**: Synthetic pacemaker telemetry. The ML model (Random Forest) predicts whether a pacemaker will fail in the next 7 days based on device sensor readings. A FastAPI backend ingests new telemetry, retrains the model, and pushes metrics to a React dashboard showing patient-level risk.
+
 ## Repository Overview
 
-Full-stack web application built on the FastAPI Full Stack Template. **This is not a template under development—it is a template being used to build real web applications.** Make changes as application features, not template improvements.
+Full-stack web application built on the FastAPI Full Stack Template. **This is not a template under development—it is a template being used to build a real web application.** Make changes as application features, not template improvements.
 
 - **Backend**: Python 3.10+ with FastAPI, SQLModel ORM, PostgreSQL, Alembic migrations, JWT auth
 - **Frontend**: React 19 + TypeScript + Vite 7 + Tailwind CSS 4 + shadcn/ui + TanStack Router/Query
@@ -12,6 +20,7 @@ Full-stack web application built on the FastAPI Full Stack Template. **This is n
 - **Infrastructure**: Docker Compose with Traefik reverse proxy, Mailcatcher for dev email
 - **Linting**: Ruff + mypy (backend), Biome (frontend), prek pre-commit hooks
 - **Testing**: pytest (backend), Playwright (frontend E2E)
+- **CI/CD target**: Azure DevOps (GitHub Actions is used during development; Azure DevOps pipelines will be added for the final MLOps automation)
 
 ## Project Layout
 
@@ -57,6 +66,8 @@ Full-stack web application built on the FastAPI Full Stack Template. **This is n
 │   ├── generate-client.sh  # Regenerate frontend OpenAPI SDK from backend
 │   ├── test.sh             # Full Docker-based test run
 │   └── test-local.sh       # Legacy Docker Compose test
+├── openspec/               # OpenSpec spec-driven change workflow
+│   └── config.yaml         # Project context and purpose
 ├── .env                    # Environment variables (shared by backend & Docker Compose)
 ├── compose.yml             # Production Docker Compose
 ├── compose.override.yml    # Dev overrides (ports, hot-reload, mailcatcher, playwright)
@@ -64,6 +75,55 @@ Full-stack web application built on the FastAPI Full Stack Template. **This is n
 ├── package.json            # Root bun workspace config (workspaces: ["frontend"])
 └── .pre-commit-config.yaml # prek/pre-commit hooks config
 ```
+
+## Application Domain — Pacemaker Telemetry MLOps
+
+The core product is an MLOps pipeline and monitoring dashboard for synthetic pacemaker data.
+
+### Telemetry Data Schema
+
+Each record has these fields (stored as approximately 2,000,000 rows in the initial dataset; grows as new data is ingested):
+
+| Field | Type | Description |
+|---|---|---|
+| `Patient_ID` | int | Patient identifier (excluded from model training; used for grouping/display) |
+| `Timestamp` | unix int | Collection time (excluded from model training; ensures chronological order) |
+| `Lead_Impedance_Ohms` | float (2 dp) | Wire lead resistance. Normal ≈ 500 Ω; upward drift → lead fracture/degradation |
+| `Capture_Threshold_V` | float (2 dp) | Min voltage to stimulate heart. Normal ≈ 0.70 V; rise → lead losing tissue contact |
+| `R_Wave_Sensing_mV` | float (2 dp) | R-wave voltage detected. Normal ≈ 12.00 mV; drop → sensing degradation |
+| `Battery_Voltage_V` | float (2 dp) | Battery health. Healthy start ≈ 2.95 V; < 2.60 V → critical depletion |
+| `Target_Fail_Next_7d` | bool (0/1) | Target label. `1` = device predicted to fail within 7 days (engineered from clinical logs) |
+
+### ML Pipeline
+
+- **Algorithm**: Random Forest classifier (scikit-learn)
+- **Features used in training**: `Lead_Impedance_Ohms`, `Capture_Threshold_V`, `R_Wave_Sensing_mV`, `Battery_Voltage_V`
+- **Target**: `Target_Fail_Next_7d`
+- **Key metrics shown on dashboard**: Accuracy, Precision, Recall, F1 score
+- **Data generation**: `util/generate_data.py` (planned; will create the synthetic dataset — `util/` directory to be created at root level)
+- **Retraining trigger**: POST to a FastAPI endpoint that adds new data, retrains, evaluates, then publishes updated metrics/predictions
+
+### Planned MLOps Flow (in progress)
+
+```
+Incoming data (POST /api/v1/telemetry/ingest)
+  → Append to dataset
+  → Retrain Random Forest model
+  → Evaluate model (accuracy, precision, recall, F1)
+  → Persist trained model artifact
+  → Update dashboard with new metrics + patient-level risk predictions
+```
+
+The MLOps pipeline will also run on a scheduled Azure DevOps pipeline (daily/weekly) to keep the model fresh.
+
+### Frontend Dashboard Goal
+
+The React dashboard will display:
+- Model performance metrics (latest training run)
+- A list/table of patients currently in the **danger zone** (`Target_Fail_Next_7d = 1`)
+- Historical trend of model accuracy over retraining runs
+
+> **Current state**: The application still contains the template `Item` model and placeholder CRUD routes from the original FastAPI Full Stack Template. These will be removed/replaced with pacemaker domain models (`TelemetryRecord`, `ModelRun`, etc.) as the project progresses.
 
 ## Build, Test & Lint Commands
 
@@ -148,8 +208,14 @@ Every PR triggers these workflows that **must all pass**:
 | **Test Backend** | `test-backend.yml` | Spins up PostgreSQL + mailcatcher via Docker Compose, runs `uv run bash scripts/prestart.sh` then `uv run bash scripts/tests-start.sh`, enforces ≥90% coverage. Python 3.10. |
 | **Playwright Tests** | `playwright.yml` | Builds Docker images, runs Playwright tests sharded across 4 workers. Only runs when backend/, frontend/, .env, compose*.yml, or the workflow file changes. |
 | **Test Docker Compose** | `test-docker-compose.yml` | Builds and starts full stack, curls health endpoints. |
-| **Labels** | `labeler.yml` | Requires exactly one label from: `breaking, security, feature, bug, refactor, upgrade, docs, lang-all, internal`. |
-| **Conflict detector** | `detect-conflicts.yml` | Flags PRs with merge conflicts. |
+
+> **Note**: There is no automated labeler or conflict-detector workflow in this repository. Labels are not enforced by CI.
+
+### Known CI Behavior — `action_required` Status
+
+Workflows that require repository secrets (`POSTGRES_PASSWORD`, `SECRET_KEY`, `FIRST_SUPERUSER`, `FIRST_SUPERUSER_PASSWORD`) will show `action_required` status on PRs from first-time contributors or bots. This is a GitHub Actions environment protection feature, **not a code failure**. The repository owner must manually approve these workflow runs via the GitHub Actions UI. Once approved, the workflows run normally.
+
+**Workaround**: The owner must navigate to the Actions tab and approve pending workflow runs on new PRs.
 
 ### Pre-commit Hooks (prek)
 
@@ -198,6 +264,17 @@ When asked to write or fix E2E tests, adopt the Planner/Generator/Healer pattern
 - **Healer**: If a test fails in CI, assume the UI changed. Analyze the HTML dump and propose an updated locator rather than rewriting the logic.
 - **Seeding/Auth**: Use the Playwright setup project in `frontend/tests/auth.setup.ts` and its storage state at `playwright/.auth/user.json` for authenticated tests. Do not script full login UI flows in every test unless the test is explicitly about login behavior.
 
+### OpenSpec Workflow (spec-driven changes)
+
+This repository uses an **OpenSpec** spec-driven workflow via the skills in `.agents/skills/`. When implementing new features, prefer using the OpenSpec flow:
+
+1. **Explore** (`openspec-explore` skill): Think through the problem before writing code.
+2. **Propose** (`openspec-propose` skill): Generate a complete change proposal (design doc, spec, tasks).
+3. **Apply** (`openspec-apply-change` skill): Implement tasks from the spec.
+4. **Archive** (`openspec-archive-change` skill): Finalize and archive after implementation.
+
+The project context lives in `openspec/config.yaml` — always consult it when making architectural decisions or scoping new features.
+
 ## Key Conventions
 
 - **Python**: Target Python 3.10. Ruff enforces pycodestyle, pyflakes, isort, flake8-bugbear, comprehensions, pyupgrade, no-print, no-unused-args. No `print()` statements allowed (T201 rule).
@@ -208,6 +285,7 @@ When asked to write or fix E2E tests, adopt the Planner/Generator/Healer pattern
 - **Database models**: Defined in `backend/app/models.py` using SQLModel. Always create Alembic migrations after model changes.
 - **Shell scripts**: Must use LF line endings (enforced by `.gitattributes`).
 - **Coverage threshold**: Backend test coverage must be ≥90%.
+- **ML dependencies**: Use `scikit-learn` for ML. Add to `backend/pyproject.toml` dependencies; install with `uv sync`.
 
 ## Common Pitfalls
 
@@ -215,9 +293,13 @@ When asked to write or fix E2E tests, adopt the Planner/Generator/Healer pattern
 - **Frontend client out of sync**: If you change backend API routes/models and forget to run `bash ./scripts/generate-client.sh`, pre-commit and CI will fail.
 - **`uv sync --all-packages`** must be run from the repo root (not `backend/`) to resolve the workspace correctly. Running `uv sync` from `backend/` also works for backend-only deps.
 - **`bun install`** must be run from the repo root to install the workspace. Running from `frontend/` also works but the root lockfile (`bun.lock`) is the source of truth.
-- **PR label requirement**: CI requires one of: `breaking, security, feature, bug, refactor, upgrade, docs, lang-all, internal`. PRs without a label will fail the Labels check.
+- **PR label requirement**: CI does NOT enforce labels in this repository. The labeler workflow does not exist here.
+- **CI `action_required`**: Workflows that require secrets will show `action_required` for first-time bot PRs. This is not a code failure — the repo owner must manually approve via the GitHub Actions UI.
+- **Template Items model**: The `Item` model/routes/tests are still from the original template. They will remain until explicitly replaced with MSOA domain models. Do not delete them unless directed to do so.
 
 # Boundaries
 - 🚫 NEVER use `pip`, `poetry`, `npm`, or `yarn`.
 - ✅ ALWAYS use `uv` for Python and `bun` for JavaScript/TypeScript.
 - 🚫 NEVER edit `uv.lock` or `bun.lock` manually.
+- 🚫 NEVER remove or rename the `Item` model/routes without explicit instruction — it is placeholder content being kept intentionally.
+- ✅ When adding ML/data science code, place it under `backend/app/` following existing module conventions.
