@@ -62,16 +62,16 @@ context: |
   will be retrained on a regular basis with new incoming data to ensure it remains up-to-date/accurate.
 
 	When models are trained, we will evaluate the model's performance and later create a web app
-  serving as our unified application. The backend will be build with FastAPI, which will recieve 
+  serving as our unified application. The backend will be build with FastAPI, which will recieve
   data from an endpoint, add that data to our dataset, retrain the model, evaluate it, derive metrics,
-  push that model out for deployment, then update a React dashboard with the latest metrics and 
-  predictions. The dashboard will display key performance metrics of the model, such as accuracy, 
+  push that model out for deployment, then update a React dashboard with the latest metrics and
+  predictions. The dashboard will display key performance metrics of the model, such as accuracy,
   precision, recall, and F1 score. It will also display data for the most recent predictions of whose
   pacemakers are in the danger zone, allowing for easy monitoring of patients at risk and demonstrating
   the practical application of our AI/ML model in a real-world healthcare scenario.
 
 	Finally, we will set up a CI/CD pipeline in Azure DevOps to automate the entire process from
 	data generation to model training and dashboard updating. Our Azure DevOps will include of course
-  core CI/CD pipelines for building and testing our code, but also a scheduled pipeline that runs the 
+  core CI/CD pipelines for building and testing our code, but also a scheduled pipeline that runs the
   entire MLOps process on a regular basis (e.g., daily or weekly) to ensure that our model and dashboard
   are always up-to-date with the latest data and analysis.
